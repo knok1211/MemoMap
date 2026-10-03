@@ -37,10 +37,12 @@ export async function getRoute(profile, points) {
     distance: r.distance,
     duration: r.duration,
     line: r.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-    steps: r.legs.flatMap((l) => l.steps).map((s) => ({
-      text: describeStep(s),
-      distance: s.distance,
-    })),
+    steps: r.legs.flatMap((l, i) =>
+      l.steps.map((s) => ({
+        text: s.maneuver.type === 'arrive' && i < r.legs.length - 1 ? `경유지 ${i + 1} 도착` : describeStep(s),
+        distance: s.distance,
+      }))
+    ),
   }
 }
 

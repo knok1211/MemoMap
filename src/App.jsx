@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import MapView from './components/MapView.jsx'
-import SearchBox from './components/SearchBox.jsx'
+import PointList from './components/PointList.jsx'
 import MemoPanel, { MemoForm } from './components/MemoPanel.jsx'
 import { getRoute, reverseGeocode, fmtDistance, fmtDuration } from './lib/api.js'
 import { distanceToLine } from './lib/geo.js'
@@ -17,25 +17,31 @@ export default function App() {
   const { memos, addMemo, updateMemo, removeMemo } = useMemos()
   const [start, setStart] = useState(null)
   const [end, setEnd] = useState(null)
+  const [vias, setVias] = useState([]) // waypoints between start and end
   const [profile, setProfile] = useState('driving')
   const [route, setRoute] = useState(null)
   const [routeError, setRouteError] = useState('')
   const [routing, setRouting] = useState(false)
-  const [mode, setMode] = useState(null) // 'start' | 'end' | 'memo' | null
+  const [mode, setMode] = useState(null) // 'memo' | null (click-to-place a memo)
   const [draft, setDraft] = useState(null) // memo being created/edited
   const [selectedId, setSelectedId] = useState(null)
   const [flyTo, setFlyTo] = useState(null)
   const [tab, setTab] = useState('route')
 
+  const points = useMemo(() => (start && end ? [start, ...vias, end] : null), [start, vias, end])
+  // Key on coordinates only, so filling in a place name does not trigger a new request.
+  const pointsKey = points ? points.map((p) => `${p.lat},${p.lng}`).join(';') : ''
+
   useEffect(() => {
-    if (!start || !end) {
+    if (!points) {
       setRoute(null)
+      setRouteError('')
       return
     }
     let cancelled = false
     setRouting(true)
     setRouteError('')
-    getRoute(profile, [start, end])
+    getRoute(profile, points)
       .then((r) => !cancelled && setRoute(r))
       .catch((e) => {
         if (cancelled) return
@@ -46,7 +52,8 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [start, end, profile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointsKey, profile])
 
   const nearMemos = useMemo(() => {
     if (!route) return []
@@ -54,23 +61,48 @@ export default function App() {
   }, [route, memos])
   const nearIds = useMemo(() => new Set(nearMemos.map((m) => m.id)), [nearMemos])
 
-  async function handleMapClick(pos) {
+  function handleMapClick(pos) {
     if (mode === 'memo') {
       setDraft({ ...pos })
       setTab('memo')
       setMode(null)
-    } else if (mode === 'start' || mode === 'end') {
-      const setter = mode === 'start' ? setStart : setEnd
-      const place = { ...pos, name: `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
-      setter(place)
-      setMode(null)
-      const name = await reverseGeocode(pos.lat, pos.lng)
-      if (name) setter((cur) => (cur === place ? { ...place, name } : cur))
     }
   }
 
+  // Right-click menu: set start / add via / set end at a map position.
+  async function setPoint(kind, pos) {
+    const place = { ...pos, id: crypto.randomUUID(), name: `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }
+    const patch = (list) => list.map((p) => (p.id === place.id ? { ...p, name } : p))
+    let name = null
+
+    if (kind === 'start') setStart(place)
+    else if (kind === 'end') setEnd(place)
+    else setVias((v) => [...v, place])
+    setTab('route')
+
+    name = await reverseGeocode(pos.lat, pos.lng)
+    if (!name) return
+    if (kind === 'start') setStart((cur) => (cur?.id === place.id ? { ...cur, name } : cur))
+    else if (kind === 'end') setEnd((cur) => (cur?.id === place.id ? { ...cur, name } : cur))
+    else setVias(patch)
+  }
+
+  // Marker dragged to a new position: move the point, then refresh its place name.
+  async function movePoint(kind, id, pos) {
+    const apply = (fn) => {
+      if (kind === 'start') setStart((cur) => (cur?.id === id ? fn(cur) : cur))
+      else if (kind === 'end') setEnd((cur) => (cur?.id === id ? fn(cur) : cur))
+      else setVias((v) => v.map((p) => (p.id === id ? fn(p) : p)))
+    }
+    apply((p) => ({ ...p, ...pos, name: `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` }))
+    const name = await reverseGeocode(pos.lat, pos.lng)
+    if (name) apply((p) => (p.lat === pos.lat && p.lng === pos.lng ? { ...p, name } : p))
+  }
+
+  const removeVia = (id) => setVias((v) => v.filter((x) => x.id !== id))
+
   function useMemoAs(m, which) {
-    const place = { lat: m.lat, lng: m.lng, name: `📝 ${m.title}` }
+    const place = { id: crypto.randomUUID(), lat: m.lat, lng: m.lng, name: `📝 ${m.title}` }
     if (which === 'start') setStart(place)
     else setEnd(place)
     setTab('route')
@@ -93,11 +125,6 @@ export default function App() {
     if (selectedId === id) setSelectedId(null)
   }
 
-  const swap = () => {
-    setStart(end)
-    setEnd(start)
-  }
-
   return (
     <div className="app">
       <aside className="sidebar">
@@ -109,9 +136,18 @@ export default function App() {
 
         {tab === 'route' && (
           <section>
-            <SearchBox label="출발지" placeholder="장소 검색" value={start} onPick={setStart} onClear={() => setStart(null)} picking={mode === 'start'} onPickOnMap={() => setMode(mode === 'start' ? null : 'start')} />
-            <button className="swap" onClick={swap} disabled={!start && !end}>⇅ 바꾸기</button>
-            <SearchBox label="도착지" placeholder="장소 검색" value={end} onPick={setEnd} onClear={() => setEnd(null)} picking={mode === 'end'} onPickOnMap={() => setMode(mode === 'end' ? null : 'end')} />
+            <PointList
+              start={start}
+              vias={vias}
+              end={end}
+              swapDisabled={!start && !end && vias.length === 0}
+              onChange={({ start, vias, end }) => {
+                setStart(start)
+                setVias(vias)
+                setEnd(end)
+              }}
+            />
+            <p className="muted hint">지도에서 우클릭(모바일: 길게 누르기)하여 출발지·경유지·도착지를 지정하세요.</p>
 
             <div className="profiles">
               {PROFILES.map(([k, label]) => (
@@ -169,12 +205,13 @@ export default function App() {
       <main>
         {mode && (
           <div className="banner">
-            {mode === 'memo' ? '메모를 남길 위치를' : mode === 'start' ? '출발지를' : '도착지를'} 지도에서 클릭하세요
+            메모를 남길 위치를 지도에서 클릭하세요
           </div>
         )}
         <MapView
           start={start}
           end={end}
+          vias={vias}
           route={route}
           memos={memos}
           draft={draft && !draft.id ? draft : null}
@@ -182,6 +219,9 @@ export default function App() {
           flyTo={flyTo}
           picking={!!mode}
           onMapClick={handleMapClick}
+          onSetPoint={setPoint}
+          onMovePoint={movePoint}
+          onRemoveVia={removeVia}
           onSelectMemo={setSelectedId}
           onUseAs={useMemoAs}
           onRemove={deleteMemo}

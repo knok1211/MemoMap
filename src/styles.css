@@ -65,3 +65,23 @@ main { flex: 1; position: relative; }
   .app { flex-direction: column-reverse; }
   .sidebar { width: 100%; height: 45%; border-right: none; border-top: 1px solid #e5e7eb; }
 }
+
+.map-wrap { position: relative; height: 100%; }
+.ctx-menu { position: absolute; z-index: 1000; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid #d1d5db; border-radius: 8px; box-shadow: 0 4px 14px #0003; }
+.ctx-menu button { display: block; width: 100%; text-align: left; border: none; padding: 7px 12px; white-space: nowrap; }
+.vias { list-style: none; margin: 6px 0; padding: 0; }
+.vias li { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; padding: 4px 6px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; }
+.vias button { padding: 0 6px; font-size: 11px; }
+.vias .num { background: #f97316; color: #fff; width: 18px; height: 18px; border-radius: 50%; text-align: center; font-size: 11px; line-height: 18px; flex-shrink: 0; }
+.vias .vname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint { font-size: 12px; margin: 6px 0 0; }
+
+.points { margin-bottom: 6px; }
+.point { display: flex; align-items: flex-start; gap: 6px; padding: 6px; margin-bottom: 6px; background: #fff; border: 1px solid #d1d5db; border-radius: 8px; }
+.point[draggable="true"] { cursor: grab; }
+.point.dragging { opacity: .4; }
+.point.over { border-color: #2563eb; box-shadow: 0 0 0 2px #bfdbfe; }
+.grip { width: 12px; color: #9ca3af; line-height: 24px; user-select: none; flex-shrink: 0; }
+.badge-pt { width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; flex-shrink: 0; }
+.pname { flex: 1; min-width: 0; line-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.point .search { flex: 1; min-width: 0; }
