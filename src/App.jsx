@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './components/MapView.jsx'
 import PointList from './components/PointList.jsx'
 import { getRoute, reverseGeocode, fmtDistance, fmtDuration } from './lib/api.js'
+import { decodeState, encodeState, readHash } from './lib/share.js'
+
+const SHARE_WARN_LENGTH = 2000
+const MEMO_SAVE_DELAY = 300
 
 const PROFILES = [
   ['driving', '🚗 자동차'],
@@ -19,6 +23,76 @@ export default function App() {
   const [route, setRoute] = useState(null)
   const [routeError, setRouteError] = useState('')
   const [routing, setRouting] = useState(false)
+  const [ready, setReady] = useState(false) // URL has been read; only then may we write it back
+  const [focus, setFocus] = useState(null) // { token, points } asks the map to frame restored points
+  const [shareUrl, setShareUrl] = useState('')
+  const [linkError, setLinkError] = useState('')
+  const [copied, setCopied] = useState(false)
+  const lastHash = useRef('') // hash we wrote ourselves, to tell it apart from a pasted link
+
+  // Restore state from the URL on load, and when a different link is pasted into this tab.
+  useEffect(() => {
+    let alive = true
+    async function restore() {
+      const data = readHash(window.location.hash)
+      if (!data) {
+        if (window.location.hash) setLinkError('공유 링크를 읽을 수 없습니다.')
+        setReady(true)
+        return
+      }
+      try {
+        const s = await decodeState(data)
+        if (!alive) return
+        setStart(s.start)
+        setVias(s.vias)
+        setEnd(s.end)
+        setProfile(s.profile)
+        setLinkError('')
+        setFocus({ token: Date.now(), points: [s.start, ...s.vias, s.end].filter(Boolean).map((p) => [p.lat, p.lng]) })
+      } catch (e) {
+        if (!alive) return
+        setLinkError(`공유 링크를 열 수 없습니다. (${e.message})`)
+        history.replaceState(null, '', window.location.pathname + window.location.search)
+      } finally {
+        if (alive) setReady(true)
+      }
+    }
+    restore()
+    window.addEventListener('hashchange', restore)
+    return () => {
+      alive = false
+      window.removeEventListener('hashchange', restore)
+    }
+  }, [])
+
+  // Keep the address bar in sync so copying it is enough to share.
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const hash = await encodeState({ start, vias, end, profile })
+      if (cancelled) return
+      lastHash.current = hash
+      const base = window.location.pathname + window.location.search
+      history.replaceState(null, '', hash ? `${base}#${hash}` : base)
+      setShareUrl(hash ? window.location.href : '')
+    }, MEMO_SAVE_DELAY)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [ready, start, vias, end, profile])
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+    } catch {
+      // clipboard needs a secure context (https / localhost); fall back to manual copy
+      window.prompt('링크를 복사하세요 (Ctrl+C)', shareUrl)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   const points = useMemo(() => (start && end ? [start, ...vias, end] : null), [start, vias, end])
   // Key on coordinates only, so filling in a place name or memo does not trigger a new request.
@@ -108,6 +182,17 @@ export default function App() {
           ))}
         </div>
 
+        <div className="share">
+          <button className="primary" onClick={copyLink} disabled={!shareUrl}>
+            {copied ? '✓ 복사됨' : '🔗 링크 복사'}
+          </button>
+          <p className="muted hint">경로와 메모가 링크에 그대로 담깁니다. 민감한 정보는 메모에 적지 마세요.</p>
+          {shareUrl.length > SHARE_WARN_LENGTH && (
+            <p className="error">링크가 매우 깁니다({shareUrl.length}자). 일부 메신저나 브라우저에서 잘릴 수 있으니 지점이나 메모를 줄여 보세요.</p>
+          )}
+          {linkError && <p className="error">{linkError}</p>}
+        </div>
+
         {routing && <p className="muted">경로 계산 중…</p>}
         {routeError && <p className="error">{routeError}</p>}
         {route && (
@@ -128,6 +213,7 @@ export default function App() {
           end={end}
           vias={vias}
           route={route}
+          focus={focus}
           onSetPoint={setPoint}
           onMovePoint={movePoint}
           onMemoChange={changeMemo}

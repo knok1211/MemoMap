@@ -23,6 +23,7 @@ React + Leaflet(OpenStreetMap) 기반 길찾기 웹앱. 경로상의 지점마�
 - `src/components/PointList.jsx` — 출발/경유/도착 지점 목록 (드래그 순서 변경, 지점별 메모 입력)
 - `src/components/SearchBox.jsx` — 장소 검색 입력
 - `src/lib/api.js` — Nominatim / OSRM 호출, 거리·시간 포맷
+- `src/lib/share.js` — 경로·메모 ↔ URL 해시(`#r=<z|j><base64url>`) 직렬화/복원 (deflate-raw 압축, 입력 검증 포함)
 
 ## 구현 예정 기능
 

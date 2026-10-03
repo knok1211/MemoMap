@@ -129,7 +129,18 @@ function Fit({ line }) {
   return null
 }
 
-export default function MapView({ start, end, vias, route, onSetPoint, onMovePoint, onMemoChange, onRemovePoint }) {
+// Frames restored points right away (before a route, if any, takes over via Fit).
+function FitPoints({ focus }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!focus?.points.length) return
+    if (focus.points.length === 1) map.setView(focus.points[0], 15)
+    else map.fitBounds(L.latLngBounds(focus.points), { padding: [60, 60] })
+  }, [focus, map])
+  return null
+}
+
+export default function MapView({ start, end, vias, route, focus, onSetPoint, onMovePoint, onMemoChange, onRemovePoint }) {
   // { pos: {lat,lng}, x, y } while the right-click menu is open
   const [menu, setMenu] = useState(null)
 
@@ -154,6 +165,7 @@ export default function MapView({ start, end, vias, route, onSetPoint, onMovePoi
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapEvents onClick={closeMenu} onContextMenu={openMenu} />
+        <FitPoints focus={focus} />
         <Fit line={route?.line} />
 
         {route && <Polyline positions={route.line} pathOptions={{ color: '#2563eb', weight: 6, opacity: 0.8 }} />}
