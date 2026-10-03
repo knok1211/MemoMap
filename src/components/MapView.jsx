@@ -2,25 +2,58 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 
+export const MEMO_MAX = 100
+
 // Draggable marker handlers: report the new position when the drag ends.
-const dragProps = (kind, id, onMovePoint) => ({
+const dragProps = (id, onMovePoint) => ({
   draggable: true,
   eventHandlers: {
     dragend: (e) => {
       const { lat, lng } = e.target.getLatLng()
-      onMovePoint(kind, id, { lat, lng })
+      onMovePoint(id, { lat, lng })
     },
   },
 })
 
-const pin = (color, label = '') =>
-  L.divIcon({
-    className: '',
-    html: `<div class="pin" style="background:${color}"><span>${label}</span></div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 28],
-    popupAnchor: [0, -28],
-  })
+// Icons are cached so re-renders (e.g. typing a memo) keep the same icon instance.
+const iconCache = new Map()
+const pin = (color, label, hasMemo) => {
+  const key = `${color}|${label}|${hasMemo}`
+  if (!iconCache.has(key)) {
+    iconCache.set(
+      key,
+      L.divIcon({
+        className: '',
+        html: `<div class="pin" style="background:${color}"><span>${label}</span>${hasMemo ? '<i class="memo-dot"></i>' : ''}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28],
+        popupAnchor: [0, -28],
+      })
+    )
+  }
+  return iconCache.get(key)
+}
+
+function PointPopup({ title, point, onMemoChange, onRemove }) {
+  const memo = point.memo || ''
+  return (
+    <div className="popup">
+      <strong>{title}</strong>
+      <div className="muted pname-small">{point.name}</div>
+      <textarea
+        value={memo}
+        maxLength={MEMO_MAX}
+        rows={2}
+        placeholder="간단한 메모"
+        onChange={(e) => onMemoChange(point.id, e.target.value)}
+      />
+      <div className="row small">
+        <span className="muted count">{memo.length}/{MEMO_MAX}</span>
+        <button onClick={() => onRemove(point.id)}>지점 삭제</button>
+      </div>
+    </div>
+  )
+}
 
 const LONG_PRESS_MS = 600
 const LONG_PRESS_SLOP = 10
@@ -31,12 +64,12 @@ function MapEvents({ onClick, onContextMenu }) {
   const longPressed = useRef(false) // swallow the click that follows a long press
 
   useMapEvents({
-    click: (e) => {
+    click: () => {
       if (longPressed.current) {
         longPressed.current = false
         return
       }
-      onClick({ lat: e.latlng.lat, lng: e.latlng.lng })
+      onClick()
     },
     contextmenu: (e) => {
       e.originalEvent.preventDefault()
@@ -88,14 +121,6 @@ function MapEvents({ onClick, onContextMenu }) {
   return null
 }
 
-function Fly({ target }) {
-  const map = useMap()
-  useEffect(() => {
-    if (target) map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), 15))
-  }, [target, map])
-  return null
-}
-
 function Fit({ line }) {
   const map = useMap()
   useEffect(() => {
@@ -104,72 +129,49 @@ function Fit({ line }) {
   return null
 }
 
-export default function MapView({
-  start, end, vias, route, memos, draft, selectedId, flyTo, picking,
-  onMapClick, onSetPoint, onMovePoint, onSelectMemo, onUseAs, onRemove, onRemoveVia,
-}) {
+export default function MapView({ start, end, vias, route, onSetPoint, onMovePoint, onMemoChange, onRemovePoint }) {
   // { pos: {lat,lng}, x, y } while the right-click menu is open
   const [menu, setMenu] = useState(null)
 
   const openMenu = useCallback((pos, point) => setMenu(pos ? { pos, x: point.x, y: point.y } : null), [])
+  const closeMenu = useCallback(() => setMenu(null), [])
   const choose = (kind) => {
     onSetPoint(kind, menu.pos)
     setMenu(null)
   }
 
+  const popup = (title, point) => (
+    <Popup>
+      <PointPopup title={title} point={point} onMemoChange={onMemoChange} onRemove={onRemovePoint} />
+    </Popup>
+  )
+
   return (
     <div className="map-wrap">
-      <MapContainer center={[37.5665, 126.978]} zoom={13} className={picking ? 'map picking' : 'map'}>
+      <MapContainer center={[37.5665, 126.978]} zoom={13} className="map">
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapEvents
-          onClick={(pos) => {
-            setMenu(null)
-            onMapClick(pos)
-          }}
-          onContextMenu={openMenu}
-        />
-        <Fly target={flyTo} />
+        <MapEvents onClick={closeMenu} onContextMenu={openMenu} />
         <Fit line={route?.line} />
 
         {route && <Polyline positions={route.line} pathOptions={{ color: '#2563eb', weight: 6, opacity: 0.8 }} />}
-        {start && <Marker position={[start.lat, start.lng]} icon={pin('#16a34a', 'A')} {...dragProps('start', start.id, onMovePoint)} />}
+        {start && (
+          <Marker position={[start.lat, start.lng]} icon={pin('#16a34a', 'A', !!start.memo)} {...dragProps(start.id, onMovePoint)}>
+            {popup('출발지', start)}
+          </Marker>
+        )}
         {vias.map((v, i) => (
-          <Marker key={v.id} position={[v.lat, v.lng]} icon={pin('#f97316', i + 1)} {...dragProps('via', v.id, onMovePoint)}>
-            <Popup>
-              <strong>경유지 {i + 1}</strong>
-              <div className="row small" style={{ marginTop: 6 }}>
-                <button onClick={() => onRemoveVia(v.id)}>삭제</button>
-              </div>
-            </Popup>
+          <Marker key={v.id} position={[v.lat, v.lng]} icon={pin('#f97316', i + 1, !!v.memo)} {...dragProps(v.id, onMovePoint)}>
+            {popup(`경유지 ${i + 1}`, v)}
           </Marker>
         ))}
-        {end && <Marker position={[end.lat, end.lng]} icon={pin('#dc2626', 'B')} {...dragProps('end', end.id, onMovePoint)} />}
-        {draft && <Marker position={[draft.lat, draft.lng]} icon={pin('#9ca3af', '+')} />}
-
-        {memos.map((m) => (
-          <Marker
-            key={m.id}
-            position={[m.lat, m.lng]}
-            icon={pin(m.color, '✎')}
-            zIndexOffset={m.id === selectedId ? 1000 : 0}
-            eventHandlers={{ click: () => onSelectMemo(m.id) }}
-          >
-            {m.id === selectedId && (
-              <Popup>
-                <strong>{m.title}</strong>
-                {m.text && <p style={{ margin: '4px 0' }}>{m.text}</p>}
-                <div className="row small">
-                  <button onClick={() => onUseAs(m, 'start')}>출발</button>
-                  <button onClick={() => onUseAs(m, 'end')}>도착</button>
-                  <button onClick={() => onRemove(m.id)}>삭제</button>
-                </div>
-              </Popup>
-            )}
+        {end && (
+          <Marker position={[end.lat, end.lng]} icon={pin('#dc2626', 'B', !!end.memo)} {...dragProps(end.id, onMovePoint)}>
+            {popup('도착지', end)}
           </Marker>
-        ))}
+        )}
       </MapContainer>
 
       {menu && (

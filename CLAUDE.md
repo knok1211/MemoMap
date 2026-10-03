@@ -20,9 +20,9 @@ React + Leaflet(OpenStreetMap) 기반 길찾기 웹앱. 경로상의 지점마�
 
 - `src/App.jsx` — 최상위 상태(지점 목록, 이동수단, 경로)와 레이아웃
 - `src/components/MapView.jsx` — 지도, 마커, 경로선, 컨텍스트 메뉴
+- `src/components/PointList.jsx` — 출발/경유/도착 지점 목록 (드래그 순서 변경, 지점별 메모 입력)
 - `src/components/SearchBox.jsx` — 장소 검색 입력
 - `src/lib/api.js` — Nominatim / OSRM 호출, 거리·시간 포맷
-- `src/lib/geo.js` — 거리 계산 유틸
 
 ## 구현 예정 기능
 
@@ -42,7 +42,7 @@ React + Leaflet(OpenStreetMap) 기반 길찾기 웹앱. 경로상의 지점마�
 - 사이드바의 "메모" 탭과 `MemoPanel`, `useMemos`(localStorage 기반 독립 메모)를 삭제한다.
 - 메모는 독립 개체가 아니라 **각 지점(시작/경유/목적지)에 속한 필드**다: `{ lat, lng, name, memo }`.
 - 제목은 없다. 한 줄~몇 줄의 짧은 텍스트만 입력한다 (최대 길이 제한, 예: 100자).
-- 입력 위치: 사이드바의 지점 목록 항목 안, 그리고 마커 팝업에서 바로 편집할 수 있다.
+- 입력 위치: 지점별 사이드바의 지점 목록 항목 안으로만 한정
 - 지점을 삭제하면 메모도 함께 삭제된다.
 - "경로 근처 메모" 기능은 제거한다. 메모는 경로에 포함된 지점에만 존재하기 때문이다.
 

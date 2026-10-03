@@ -1,20 +1,27 @@
 import { useState } from 'react'
 import SearchBox from './SearchBox.jsx'
+import { MEMO_MAX } from './MapView.jsx'
 
 const badge = (i, last) => (i === 0 ? ['A', '#16a34a'] : i === last ? ['B', '#dc2626'] : [String(i), '#f97316'])
-const newId = () => crypto.randomUUID()
 
-// Start / via / end rendered as one uniform list; drag rows to reorder.
+// Start / via / end rendered as one uniform list; drag rows by the grip to reorder.
 // Role follows position: first = start, last = end, the rest = vias.
-export default function PointList({ start, vias, end, onChange, swapDisabled }) {
+export default function PointList({ start, vias, end, onChange, onMemoChange, swapDisabled }) {
   const slots = [start, ...vias, end]
   const last = slots.length - 1
   const [from, setFrom] = useState(null)
   const [over, setOver] = useState(null)
+  const [grabbed, setGrabbed] = useState(null) // row armed for dragging via its grip
 
   const commit = (next) => onChange({ start: next[0], vias: next.slice(1, -1).filter(Boolean), end: next[next.length - 1] })
 
   const setSlot = (i, place) => commit(slots.map((s, k) => (k === i ? place : s)))
+
+  const endDrag = () => {
+    setFrom(null)
+    setOver(null)
+    setGrabbed(null)
+  }
 
   function drop(to) {
     if (from !== null && from !== to) {
@@ -28,8 +35,7 @@ export default function PointList({ start, vias, end, onChange, swapDisabled }) 
       }
       commit(next)
     }
-    setFrom(null)
-    setOver(null)
+    endDrag()
   }
 
   const remove = (i) => (i === 0 || i === last ? setSlot(i, null) : commit(slots.filter((_, k) => k !== i)))
@@ -39,12 +45,11 @@ export default function PointList({ start, vias, end, onChange, swapDisabled }) 
     <div className="points">
       {slots.map((p, i) => {
         const [label, color] = badge(i, last)
-        const hint = i === 0 ? '출발지 검색' : '도착지 검색'
         return (
           <div
             key={p ? p.id : i === 0 ? 'empty-start' : 'empty-end'}
             className={`point${over === i && from !== i ? ' over' : ''}${from === i ? ' dragging' : ''}`}
-            draggable={!!p}
+            draggable={grabbed === i}
             onDragStart={(e) => {
               e.dataTransfer.effectAllowed = 'move'
               e.dataTransfer.setData('text/plain', String(i))
@@ -59,20 +64,37 @@ export default function PointList({ start, vias, end, onChange, swapDisabled }) 
               e.preventDefault()
               drop(i)
             }}
-            onDragEnd={() => {
-              setFrom(null)
-              setOver(null)
-            }}
+            onDragEnd={endDrag}
           >
-            <span className="grip" aria-hidden>{p ? '⋮⋮' : ''}</span>
+            {/* Only the grip arms dragging, so text can still be selected in the memo field. */}
+            <span
+              className={p ? 'grip on' : 'grip'}
+              aria-hidden
+              onMouseDown={() => p && setGrabbed(i)}
+              onMouseUp={() => setGrabbed(null)}
+            >
+              {p ? '⋮⋮' : ''}
+            </span>
             <span className="badge-pt" style={{ background: color }}>{label}</span>
             {p ? (
-              <>
-                <span className="pname" title={p.name}>{p.name}</span>
-                <button className="icon" onClick={() => remove(i)} aria-label="지점 삭제">✕</button>
-              </>
+              <div className="pbody">
+                <div className="ptop">
+                  <span className="pname" title={p.name}>{p.name}</span>
+                  <button className="icon" onClick={() => remove(i)} aria-label="지점 삭제">✕</button>
+                </div>
+                <input
+                  className="pmemo"
+                  value={p.memo || ''}
+                  maxLength={MEMO_MAX}
+                  placeholder="간단한 메모"
+                  onChange={(e) => onMemoChange(p.id, e.target.value)}
+                />
+              </div>
             ) : (
-              <SearchBox placeholder={hint} onPick={(r) => setSlot(i, { ...r, id: newId() })} />
+              <SearchBox
+                placeholder={i === 0 ? '출발지 검색' : '도착지 검색'}
+                onPick={(r) => setSlot(i, { ...r, id: crypto.randomUUID(), memo: '' })}
+              />
             )}
           </div>
         )
